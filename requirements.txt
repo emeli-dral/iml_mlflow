@@ -1,10 +1,6 @@
-jupyter
-mlflow
 pandas
-numpy
 scikit-learn
 seaborn
 fastparquet
 xgboost
-optuna
-prefect
+torch

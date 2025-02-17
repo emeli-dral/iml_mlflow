@@ -1,48 +1,49 @@
+import pickle
+import pandas as pd
+
 from prefect import flow, task
+from sklearn.metrics import root_mean_squared_error
 
 @task(name='data load', log_prints=True)
 def load_data(path):
-    print(f'loaded: {path}')
+    data = pd.read_parquet(path)
+    return data
 
 @task(name='data transform', log_prints=True)
-def transform_data(path):
-    print(f'transformed: {path}')
-
-def load_transform_data(path):
-   print(path)
-
-def train_test_split(path):
-   print(path)
-
-def dataset_visualization(dataframe):
-    pass
-
-def train_model(dataframe):
-    pass
+def transform_data(data):
+    data['duration'] = data['lpep_dropoff_datetime'] - data['lpep_pickup_datetime']
+    data.duration = data.duration.apply(lambda td: td.total_seconds()/60)
+    data = data[(data.duration >= 3.) & (data.duration <= 90.)] 
+    data.fillna(0, inplace=True) #maybe debug this later
+    return data
 
 @task(name='model load', log_prints=True)
-def load_model(model):
-    print(f'load model {model}')
-
-@task(name='model validation', log_prints=True)
-def validate_model(preds, actual):
-    print(f'validation for {preds}, {actual}')
+def load_model(path):
+    with open(path, 'rb') as f_in:
+        model = pickle.load(f_in)
+    return model
 
 @task(name='predictions generation', log_prints=True)
 def generate_predictions(model, dataframe):
-    print(f'generate predictions {model}, {dataframe}')
+    num_features = ['total_amount', 'trip_distance', 'passenger_count']
+    cat_features = ['PULocationID', 'DOLocationID']
+    return model.predict(dataframe[num_features + cat_features])
+
+@task(name='model validation', log_prints=True)
+def validate_model(preds, actual):
+    return root_mean_squared_error(preds, actual)
 
 @flow(name='taxi ride duration prediction')
 def the_flow():
-    load_data('train_data')
-    load_data('test_data')
-    transform_data('train_data')
-    transform_data('test_data')
-    load_model('best_model')
-    generate_predictions('model', 'train_data')
-    generate_predictions('model', 'test_data')
-    validate_model('preds_train', 'y_train')
-    validate_model('preds_test', 'y_test')
+    train = load_data('data/green_tripdata_2024-10.parquet')
+    test = load_data('data/green_tripdata_2024-11.parquet')
+    train_dataset = transform_data(train)
+    test_dataset = transform_data(test)
+    model = load_model('models/model.bin')
+    train_preds = generate_predictions(model, train_dataset)
+    test_preds = generate_predictions(model, test_dataset)
+    validate_model(train_preds, train_dataset['duration'])
+    validate_model(test_preds, test_dataset['duration'])
 
 if __name__ == '__main__':
     the_flow()
